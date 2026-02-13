@@ -8,6 +8,7 @@ from fastmcp import FastMCP
 # ==========================================
 mcp = FastMCP("Life_Productivity_Wellness_Companion_Pro")
 
+
 # ==========================================
 # DATA MODELS
 # ==========================================
@@ -21,21 +22,25 @@ class Task(TypedDict):
     CreatedAt: str
     DueDate: Optional[str]
     Status: str
-    XP: int
+    Points: int
 
 
-class ProductivityReport(TypedDict):
-    TotalTasks: int
-    CompletedTasks: int
-    CompletionRate: float
-    TotalXP: int
-    Level: str
+class MoodLog(TypedDict):
+    Date: str
+    MoodScore: int
+    Note: str
 
 
-class BurnoutReport(TypedDict):
-    PendingHours: float
-    BurnoutRisk: str
-    Suggestion: str
+class SleepLog(TypedDict):
+    Date: str
+    SleepHours: float
+
+
+class Goal(TypedDict):
+    Title: str
+    TargetHours: float
+    CompletedHours: float
+    ProgressPercent: float
 
 
 # ==========================================
@@ -43,30 +48,18 @@ class BurnoutReport(TypedDict):
 # ==========================================
 
 tasks: List[Task] = []
+mood_logs: List[MoodLog] = []
+sleep_logs: List[SleepLog] = []
+goals: List[Goal] = []
 water_logs: Dict[str, float] = {}
-mood_logs: Dict[str, str] = {}
+
 task_id_counter: int = 1
 
 
 # ==========================================
-# LEVEL SYSTEM
+# TASK MANAGEMENT
 # ==========================================
 
-def calculate_level(total_xp: int) -> str:
-    if total_xp >= 500:
-        return "Elite Performer"
-    elif total_xp >= 300:
-        return "Advanced Achiever"
-    elif total_xp >= 150:
-        return "Consistent Performer"
-    elif total_xp >= 50:
-        return "Rising Star"
-    return "Beginner"
-
-
-# ==========================================
-# ➕ ADD TASK (SMART XP SYSTEM)
-# ==========================================
 @mcp.tool()
 def add_task(
     title: str,
@@ -78,11 +71,9 @@ def add_task(
 
     global task_id_counter
 
-    created_at: str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-    priority_bonus: int = 10 if priority.lower() == "high" else 5
-    category_bonus: int = 5 if category.lower() == "exercise" else 0
-    xp: int = int(duration_hours * 20 + priority_bonus + category_bonus)
+    created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    bonus = 10 if priority.lower() == "high" else 0
+    points = int(duration_hours * 15 + bonus)
 
     task: Task = {
         "ID": task_id_counter,
@@ -93,104 +84,115 @@ def add_task(
         "CreatedAt": created_at,
         "DueDate": due_date,
         "Status": "Pending",
-        "XP": xp,
+        "Points": points,
     }
 
     tasks.append(task)
     task_id_counter += 1
 
     return {
-        "Message": "Task added successfully",
-        "XPAssigned": xp,
+        "Message": "Task Added Successfully",
+        "PointsAssigned": points,
     }
 
 
-# ==========================================
-# 📋 LIST TASKS
-# ==========================================
+@mcp.tool()
+def complete_task(task_id: int) -> Dict[str, str | int]:
+
+    for task in tasks:
+        if task["ID"] == task_id:
+
+            if task["Status"] == "Completed":
+                return {"Message": "Task already completed"}
+
+            task["Status"] = "Completed"
+
+            return {
+                "Message": "Task Completed",
+                "PointsEarned": task["Points"],
+            }
+
+    return {"Message": "Task not found"}
+
+
 @mcp.tool()
 def list_tasks() -> List[Task]:
     return tasks
 
 
 # ==========================================
-# ✅ COMPLETE TASK
+# GOAL TRACKING
 # ==========================================
+
 @mcp.tool()
-def complete_task(task_id: int) -> Dict[str, str | int]:
+def set_goal(title: str, target_hours: float) -> Goal:
 
-    for task in tasks:
-        if task["ID"] == task_id:
-            if task["Status"] == "Completed":
-                return {"Message": "Task already completed"}
-
-            task["Status"] = "Completed"
-            return {
-                "Message": "Task completed",
-                "XPEarned": task["XP"],
-            }
-
-    return {"Message": "Task not found"}
-
-
-# ==========================================
-# 📊 PRODUCTIVITY ANALYTICS
-# ==========================================
-@mcp.tool()
-def productivity_report() -> ProductivityReport:
-
-    completed = [t for t in tasks if t["Status"] == "Completed"]
-    total_xp = sum(t["XP"] for t in completed)
-
-    completion_rate = (
-        (len(completed) / len(tasks)) * 100
-        if tasks else 0
-    )
-
-    return {
-        "TotalTasks": len(tasks),
-        "CompletedTasks": len(completed),
-        "CompletionRate": round(completion_rate, 2),
-        "TotalXP": total_xp,
-        "Level": calculate_level(total_xp),
+    goal: Goal = {
+        "Title": title,
+        "TargetHours": target_hours,
+        "CompletedHours": 0.0,
+        "ProgressPercent": 0.0,
     }
 
+    goals.append(goal)
+    return goal
 
-# ==========================================
-# 🔥 SMART BURNOUT DETECTION
-# ==========================================
+
 @mcp.tool()
-def burnout_analysis() -> BurnoutReport:
+def update_goal_progress(title: str) -> Goal:
 
-    pending_hours = sum(
-        t["DurationHours"]
-        for t in tasks
-        if t["Status"] == "Pending"
-    )
+    for goal in goals:
+        if goal["Title"] == title:
 
-    if pending_hours >= 8:
-        return {
-            "PendingHours": pending_hours,
-            "BurnoutRisk": "High",
-            "Suggestion": "Reduce workload and take proper breaks",
-        }
-    elif pending_hours >= 4:
-        return {
-            "PendingHours": pending_hours,
-            "BurnoutRisk": "Moderate",
-            "Suggestion": "Schedule short breaks every 45 minutes",
-        }
+            completed = sum(
+                t["DurationHours"]
+                for t in tasks
+                if t["Status"] == "Completed"
+            )
 
-    return {
-        "PendingHours": pending_hours,
-        "BurnoutRisk": "Low",
-        "Suggestion": "Workload balanced",
+            goal["CompletedHours"] = completed
+            goal["ProgressPercent"] = round(
+                (completed / goal["TargetHours"]) * 100, 2
+            )
+
+            return goal
+
+    return {"Title": "Goal not found", "TargetHours": 0, "CompletedHours": 0, "ProgressPercent": 0}
+
+
+# ==========================================
+# MOOD & SLEEP TRACKING
+# ==========================================
+
+@mcp.tool()
+def log_mood(score: int, note: str = "") -> MoodLog:
+
+    entry: MoodLog = {
+        "Date": str(date.today()),
+        "MoodScore": score,
+        "Note": note,
     }
 
+    mood_logs.append(entry)
+    return entry
+
+
+@mcp.tool()
+def log_sleep(hours: float) -> SleepLog:
+
+    entry: SleepLog = {
+        "Date": str(date.today()),
+        "SleepHours": hours,
+    }
+
+    sleep_logs.append(entry)
+    return entry
+
 
 # ==========================================
-# 💧 HYDRATION SYSTEM
+# HYDRATION
 # ==========================================
+
 @mcp.tool()
 def log_water(amount_liters: float) -> Dict[str, str | float]:
 
@@ -200,78 +202,137 @@ def log_water(amount_liters: float) -> Dict[str, str | float]:
         water_logs[today] = 0.0
 
     water_logs[today] += amount_liters
+
     total = water_logs[today]
 
+    status = "Excellent Hydration" if total >= 2.5 else "Drink More Water"
+
     return {
         "Date": today,
-        "TotalWater": total,
-        "Status": "Excellent" if total >= 2.5 else "Drink more water",
+        "TotalWaterLiters": total,
+        "Status": status,
     }
 
 
 # ==========================================
-# 😊 MOOD TRACKER
+# ANALYTICS
 # ==========================================
-@mcp.tool()
-def log_mood(mood: str) -> Dict[str, str]:
 
-    today = str(date.today())
-    mood_logs[today] = mood
+@mcp.tool()
+def weekly_productivity() -> Dict[str, float]:
+
+    last_7_days = date.today() - timedelta(days=7)
+
+    completed = [
+        t for t in tasks
+        if t["Status"] == "Completed"
+        and datetime.strptime(t["CreatedAt"][:10], "%Y-%m-%d").date() >= last_7_days
+    ]
+
+    total_hours = sum(t["DurationHours"] for t in completed)
 
     return {
-        "Date": today,
-        "MoodLogged": mood,
+        "CompletedTasksLast7Days": len(completed),
+        "TotalStudyHoursLast7Days": total_hours,
+    }
+
+
+@mcp.tool()
+def burnout_risk() -> Dict[str, str | float]:
+
+    pending_hours = sum(
+        t["DurationHours"]
+        for t in tasks
+        if t["Status"] == "Pending"
+    )
+
+    avg_sleep = (
+        sum(s["SleepHours"] for s in sleep_logs) / len(sleep_logs)
+        if sleep_logs else 0
+    )
+
+    avg_mood = (
+        sum(m["MoodScore"] for m in mood_logs) / len(mood_logs)
+        if mood_logs else 0
+    )
+
+    burnout_score = pending_hours * 2 - avg_sleep * 1.5 - avg_mood
+
+    risk = "High Risk" if burnout_score > 10 else "Moderate" if burnout_score > 5 else "Low"
+
+    return {
+        "BurnoutScore": round(burnout_score, 2),
+        "RiskLevel": risk,
     }
 
 
 # ==========================================
-# 🧠 SMART TASK ORDERING
+# STREAK
 # ==========================================
-@mcp.tool()
-def smart_task_order() -> List[Task]:
 
-    return sorted(
-        tasks,
-        key=lambda x: (x["Priority"], -x["DurationHours"]),
+@mcp.tool()
+def streak() -> Dict[str, int]:
+
+    completed_days = sorted(
+        {
+            t["CreatedAt"][:10]
+            for t in tasks
+            if t["Status"] == "Completed"
+        },
         reverse=True,
     )
 
+    streak_count = 0
+    today = date.today()
+
+    for i, day_str in enumerate(completed_days):
+        day_date = datetime.strptime(day_str, "%Y-%m-%d").date()
+        if day_date == today - timedelta(days=i):
+            streak_count += 1
+        else:
+            break
+
+    return {"CurrentStreakDays": streak_count}
+
 
 # ==========================================
-# 📝 ADVANCED NOTES GENERATOR
+# SMART SUGGESTION ENGINE
 # ==========================================
+
 @mcp.tool()
-def generate_notes(topic: str) -> Dict[str, List[str] | str]:
+def smart_suggestion() -> Dict[str, str]:
 
-    return {
-        "Topic": topic,
-        "DeepConcepts": [
-            f"Core theory of {topic}",
-            "Advanced implementation details",
-            "Optimization strategies",
-        ],
-        "RealWorldApplications": [
-            "Industry use cases",
-            "Case study examples",
-        ],
-        "CommonPitfalls": [
-            "Frequent mistakes",
-            "Debugging strategies",
-        ],
-        "InterviewQuestions": [
-            f"What is {topic}?",
-            f"Explain advantages of {topic}",
-        ],
-        "RevisionChecklist": [
-            "Understand fundamentals",
-            "Practice examples",
-            "Solve real-world problems",
-        ],
-    }
+    burnout = burnout_risk()["RiskLevel"]
+
+    if burnout == "High Risk":
+        return {"Suggestion": "Reduce workload and take recovery break"}
+    if burnout == "Moderate":
+        return {"Suggestion": "Balance study with light exercise"}
+    return {"Suggestion": "You're performing well. Keep going!"}
 
 
 # ==========================================
-# 🚀 RUN SERVER
+# CLEAR ALL DATA
 # ==========================================
+
+@mcp.tool()
+def reset_system() -> Dict[str, str]:
+
+    global tasks, mood_logs, sleep_logs, goals, water_logs, task_id_counter
+
+    tasks = []
+    mood_logs = []
+    sleep_logs = []
+    goals = []
+    water_logs = {}
+    task_id_counter = 1
+
+    return {"Message": "System Reset Successfully"}
+
+
+# ==========================================
+# RUN SERVER
+# ==========================================
+
 if __name__ == "__main__":
     mcp.run(transport="http", host="0.0.0.0", port=8000)
