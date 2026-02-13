@@ -1,232 +1,316 @@
+from __future__ import annotations
 from datetime import datetime, date, timedelta
+from typing import List, Dict, TypedDict, Optional
 from fastmcp import FastMCP
 
-# -----------------------------
+# =====================================
 # MCP INIT
-# -----------------------------
+# =====================================
 mcp = FastMCP("Life_Productivity_Wellness_Companion")
 
-# -----------------------------
-# IN-MEMORY STORAGE
-# -----------------------------
-tasks = []
-water_logs = {}
-task_id_counter = 1
 
-# -----------------------------
-# ➕ Add Task
-# -----------------------------
+# =====================================
+# DATA MODELS (STRICT TYPES)
+# =====================================
+
+class Task(TypedDict):
+    ID: int
+    Title: str
+    Category: str
+    Priority: str
+    DurationHours: float
+    CreatedAt: str
+    DueDate: Optional[str]
+    Status: str
+    Points: int
+
+
+class Summary(TypedDict):
+    TotalTasks: int
+    CompletedTasks: int
+    PendingTasks: int
+    TotalPointsEarned: int
+
+
+class HydrationLog(TypedDict):
+    Date: str
+    TotalWaterLiters: float
+    HydrationStatus: str
+
+
+class StreakResult(TypedDict):
+    CurrentStreakDays: int
+
+
+class AchievementResult(TypedDict):
+    CurrentPoints: int
+    CurrentStreak: int
+    UnlockedBadges: List[str]
+
+
+# =====================================
+# IN-MEMORY STORAGE
+# =====================================
+
+tasks: List[Task] = []
+water_logs: Dict[str, float] = {}
+task_id_counter: int = 1
+
+
+# =====================================
+# ➕ ADD TASK
+# =====================================
 @mcp.tool()
-def add_task(title: str,
-             duration_hours: float,
-             category: str = "Study",
-             priority: str = "Medium",
-             due_date: str = None) -> dict:
+def add_task(
+    title: str,
+    duration_hours: float,
+    category: str = "Study",
+    priority: str = "Medium",
+    due_date: Optional[str] = None,
+) -> Dict[str, int | str]:
 
     global task_id_counter
 
-    created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    bonus = 5 if priority.lower() == "high" else 0
-    points = int(duration_hours * 10 + bonus)
+    created_at: str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    bonus: int = 5 if priority.lower() == "high" else 0
+    points: int = int(duration_hours * 10 + bonus)
 
-    task = {
-        "id": task_id_counter,
-        "title": title,
-        "category": category,
-        "priority": priority,
-        "duration_hours": duration_hours,
-        "created_at": created_at,
-        "due_date": due_date,
-        "completed": False,
-        "points": points
+    task: Task = {
+        "ID": task_id_counter,
+        "Title": title,
+        "Category": category,
+        "Priority": priority,
+        "DurationHours": duration_hours,
+        "CreatedAt": created_at,
+        "DueDate": due_date,
+        "Status": "Pending",
+        "Points": points,
     }
 
     tasks.append(task)
     task_id_counter += 1
 
     return {
-        "message": f"Task '{title}' added successfully",
-        "points_awarded": points
+        "Message": f"Task '{title}' added successfully",
+        "PointsAssigned": points,
     }
 
-# -----------------------------
-# 📋 List Tasks
-# -----------------------------
+
+# =====================================
+# 📋 LIST TASKS
+# =====================================
 @mcp.tool()
-def list_tasks() -> list:
+def list_tasks() -> List[Task]:
     return tasks
 
-# -----------------------------
-# ✅ Complete Task
-# -----------------------------
+
+# =====================================
+# ✅ COMPLETE TASK
+# =====================================
 @mcp.tool()
-def complete_task(task_id: int) -> dict:
+def complete_task(task_id: int) -> Dict[str, int | str]:
 
     for task in tasks:
-        if task["id"] == task_id:
-            if task["completed"]:
-                return {"message": "Task already completed"}
-            task["completed"] = True
+        if task["ID"] == task_id:
+            if task["Status"] == "Completed":
+                return {"Message": "Task already completed"}
+
+            task["Status"] = "Completed"
+
             return {
-                "message": f"Task {task_id} completed",
-                "points_earned": task["points"]
+                "Message": "Task completed successfully",
+                "PointsEarned": task["Points"],
             }
 
-    return {"error": "Task not found"}
+    return {"Message": "Task not found"}
 
-# -----------------------------
-# ⏳ Pending Tasks
-# -----------------------------
-@mcp.tool()
-def pending_tasks() -> list:
-    return [task for task in tasks if not task["completed"]]
 
-# -----------------------------
-# 💰 Total Points
-# -----------------------------
+# =====================================
+# ⏳ PENDING TASKS
+# =====================================
 @mcp.tool()
-def total_points() -> dict:
-    total = sum(task["points"] for task in tasks if task["completed"])
-    return {"total_points": total}
+def pending_tasks() -> List[Task]:
+    return [task for task in tasks if task["Status"] == "Pending"]
 
-# -----------------------------
-# 🔥 Streak
-# -----------------------------
+
+# =====================================
+# 💰 TOTAL POINTS
+# =====================================
 @mcp.tool()
-def streak() -> dict:
-    completed_days = sorted(
-        list({
-            task["created_at"][:10]
-            for task in tasks
-            if task["completed"]
-        }),
-        reverse=True
+def total_points() -> Summary:
+
+    completed: List[Task] = [
+        task for task in tasks if task["Status"] == "Completed"
+    ]
+
+    total: int = sum(task["Points"] for task in completed)
+
+    return {
+        "TotalTasks": len(tasks),
+        "CompletedTasks": len(completed),
+        "PendingTasks": len(tasks) - len(completed),
+        "TotalPointsEarned": total,
+    }
+
+
+# =====================================
+# 🔥 STREAK
+# =====================================
+@mcp.tool()
+def streak() -> StreakResult:
+
+    completed_days: List[str] = sorted(
+        list(
+            {
+                task["CreatedAt"][:10]
+                for task in tasks
+                if task["Status"] == "Completed"
+            }
+        ),
+        reverse=True,
     )
 
-    streak_count = 0
-    today = date.today()
+    streak_count: int = 0
+    today: date = date.today()
 
     for i, day_str in enumerate(completed_days):
-        day_date = datetime.strptime(day_str, "%Y-%m-%d").date()
+        day_date: date = datetime.strptime(day_str, "%Y-%m-%d").date()
         if day_date == today - timedelta(days=i):
             streak_count += 1
         else:
             break
 
-    return {"current_streak_days": streak_count}
+    return {"CurrentStreakDays": streak_count}
 
-# -----------------------------
-# 🏆 Achievements
-# -----------------------------
+
+# =====================================
+# 🏆 ACHIEVEMENTS
+# =====================================
 @mcp.tool()
-def achievements() -> dict:
-    total = total_points()["total_points"]
-    streak_days = streak()["current_streak_days"]
+def achievements() -> AchievementResult:
 
-    unlocked = []
+    summary: Summary = total_points()
+    total: int = summary["TotalPointsEarned"]
+    streak_days: int = streak()["CurrentStreakDays"]
+
+    badges: List[str] = []
 
     if total >= 50:
-        unlocked.append("🥇 Rookie Productivity")
+        badges.append("Rookie Productivity")
     if total >= 100:
-        unlocked.append("🥈 Pro Productivity")
+        badges.append("Pro Productivity")
     if streak_days >= 3:
-        unlocked.append("🔥 3-Day Streak")
+        badges.append("3-Day Consistency")
     if streak_days >= 7:
-        unlocked.append("💎 7-Day Streak")
+        badges.append("7-Day Discipline Master")
 
-    if not unlocked:
-        unlocked.append("Keep going! Your journey has started 🚀")
+    if not badges:
+        badges.append("Keep progressing to unlock achievements")
 
-    return {"achievements": unlocked}
+    return {
+        "CurrentPoints": total,
+        "CurrentStreak": streak_days,
+        "UnlockedBadges": badges,
+    }
 
-# -----------------------------
-# 💧 Log Water
-# -----------------------------
+
+# =====================================
+# 💧 LOG WATER
+# =====================================
 @mcp.tool()
-def log_water(amount_liters: float, log_date: str = None) -> dict:
+def log_water(
+    amount_liters: float,
+    log_date: Optional[str] = None
+) -> HydrationLog:
 
-    if not log_date:
+    if log_date is None:
         log_date = str(date.today())
 
     if log_date not in water_logs:
-        water_logs[log_date] = 0
+        water_logs[log_date] = 0.0
 
     water_logs[log_date] += amount_liters
+    total: float = water_logs[log_date]
 
-    total = water_logs[log_date]
-    status = "💧 Excellent hydration!" if total >= 2.5 else "⚠️ Drink more water."
-
-    return {
-        "date": log_date,
-        "total_water": total,
-        "status": status
-    }
-
-# -----------------------------
-# 💡 Suggest Breaks
-# -----------------------------
-@mcp.tool()
-def suggest_breaks() -> str:
-    total_hours = sum(
-        task["duration_hours"]
-        for task in tasks
-        if not task["completed"]
+    status: str = (
+        "Excellent hydration" if total >= 2.5 else "Drink more water"
     )
 
-    if total_hours >= 2:
-        return "⚡ Long study session detected! Take a 5–10 min stretch or walk."
-    return "✅ Study load is balanced. Keep going!"
-
-# -----------------------------
-# 📝 Generate Notes
-# -----------------------------
-@mcp.tool()
-def generate_notes(topic: str) -> dict:
-
-    notes = f"""
-📌 Detailed Notes on {topic}
-
-1️⃣ Introduction
-Definition and overview of {topic}.
-
-2️⃣ Core Concepts
-- Important principles
-- Key terminology
-- Fundamental rules
-
-3️⃣ Practical Applications
-- Real-world use cases
-- Example scenarios
-
-4️⃣ Common Mistakes
-- Conceptual misunderstandings
-- Implementation errors
-
-5️⃣ Summary
-Quick revision points for exams.
-
-6️⃣ Practice Questions
-- Short answer questions
-- Case-based problems
-"""
-
     return {
-        "topic": topic,
-        "notes": notes.strip()
+        "Date": log_date,
+        "TotalWaterLiters": total,
+        "HydrationStatus": status,
     }
 
-# -----------------------------
-# 🗑 Clear Tasks
-# -----------------------------
+
+# =====================================
+# 💡 SUGGEST BREAKS
+# =====================================
 @mcp.tool()
-def clear_tasks() -> str:
+def suggest_breaks() -> Dict[str, float | str]:
+
+    total_hours: float = sum(
+        task["DurationHours"]
+        for task in tasks
+        if task["Status"] == "Pending"
+    )
+
+    suggestion: str = (
+        "Take a short 5–10 minute break"
+        if total_hours >= 2
+        else "Study load balanced"
+    )
+
+    return {
+        "PendingStudyHours": total_hours,
+        "Suggestion": suggestion,
+    }
+
+
+# =====================================
+# 📝 GENERATE NOTES
+# =====================================
+@mcp.tool()
+def generate_notes(topic: str) -> Dict[str, str | List[str]]:
+
+    return {
+        "Topic": topic,
+        "Introduction": f"Overview of {topic}",
+        "CoreConcepts": [
+            "Key principles",
+            "Important terminology",
+            "Foundational rules",
+        ],
+        "Applications": [
+            "Real-world use cases",
+            "Implementation scenarios",
+        ],
+        "CommonMistakes": [
+            "Conceptual misunderstandings",
+            "Incorrect implementation patterns",
+        ],
+        "RevisionPoints": [
+            "Quick recap",
+            "Exam-focused highlights",
+        ],
+    }
+
+
+# =====================================
+# 🗑 CLEAR TASKS
+# =====================================
+@mcp.tool()
+def clear_tasks() -> Dict[str, str]:
+
     global tasks, task_id_counter
     tasks = []
     task_id_counter = 1
-    return "All tasks cleared."
 
-# -----------------------------
-# 🚀 Run MCP Server
-# -----------------------------
+    return {"Message": "All tasks cleared successfully"}
+
+
+# =====================================
+# 🚀 RUN SERVER
+# =====================================
 if __name__ == "__main__":
     mcp.run(transport="http", host="0.0.0.0", port=8000)
